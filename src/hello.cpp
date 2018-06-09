@@ -55,18 +55,9 @@ class l2dex : public eosio::contract {
         require_recipient(opener);
         require_recipient(respondent);
 
-        // calculate channel hash to check existence
-        std::string hash_source = std::to_string(opener)
-          + std::to_string(respondent)
-          + std::to_string(quantity.symbol.name())
-          + pair;
-        
-        checksum256 id_hash;
-        sha256(const_cast<char*>(hash_source.c_str()), hash_source.length(), &id_hash);
-
         // check if the channel between these two accounts in the selected currency already exists
         channels channel( _self, N(l2dex.code) );
-        auto chid = reinterpret_cast<uint64_t*>(id_hash.hash)[0];
+        auto chid = calcChannelId(opener, respondent, quantity, pair);
         auto ch2 = channel.find(chid);
 
         eosio_assert(ch2 == channel.end(), "channel already exists!");
@@ -78,11 +69,7 @@ class l2dex : public eosio::contract {
         //   { opener, N(eosio.ramfee), fee, std::string("") } )
 
         // check that opener has enough money
-        accounts acc( N(eosio.token), opener );
-        auto balance = acc.get(quantity.symbol.name());
-        // print(balance.balance);
-
-        eosio_assert(balance.balance.amount >= quantity.amount, "not enough money!");
+        eosio_assert(enoughMoney(opener, quantity), "not enough money!");
 
         // raise permissions level and transfer tokens (currency/symbol) from opener to this contract
         action(
@@ -106,6 +93,26 @@ class l2dex : public eosio::contract {
         // add_balance(_self, quantity, opener);
       }
       /// @abi action
+      void extend(account_name opener, public_key pub_key, account_name respondent, asset quantity, std::string pair)
+      {
+        print("Extending: ", opener, " ", respondent, " with ", quantity, " ", pair);
+        
+        require_auth(opener);
+        eosio_assert(enoughMoney(opener, quantity), "not enough money!");
+
+        auto id = calcChannelId(opener, respondent, quantity, pair);
+        
+        channels channel( _self, N(l2dex.code) );
+        auto ch2 = channel.find(id);
+        eosio_assert(ch2 != channel.end(), "channel doesn't exist!");
+        const auto& ch = *ch2;
+        eosio_assert(ch.allowance.amount < quantity.amount, "not enough quantity to extend!");
+        channel.modify(ch, 0, [&](auto& x)
+        {
+          x.allowance = quantity;
+        });
+      }
+      /// @abi action
       void close(account_name opener, account_name respondent, std::string tx)
       {
         print("Closing: ", opener, respondent, " with ", tx);
@@ -115,6 +122,33 @@ class l2dex : public eosio::contract {
       void hi( account_name user ) {
          print( "Hello, ", name{user} );
       }
+  private:
+      bool enoughMoney(account_name opener, asset quantity)
+      {
+        return getUserBalance(opener, quantity).amount >= quantity.amount;
+      }
+      asset getUserBalance(account_name opener, asset quantity)
+      {
+        accounts acc( N(eosio.token), opener );
+        auto balance = acc.get(quantity.symbol.name());
+        return balance.balance;
+      }
+      uint64_t calcChannelId(account_name opener, account_name respondent, asset quantity, std::string pair)
+      {
+        auto hash = calcChannelHash(opener, respondent, quantity, pair);
+        return reinterpret_cast<uint64_t*>(hash.hash)[0];
+      }
+      checksum256 calcChannelHash(account_name opener, account_name respondent, asset quantity, std::string pair)
+      {
+        std::string hash_source = std::to_string(opener)
+          + std::to_string(respondent)
+          + std::to_string(quantity.symbol.name())
+          + pair;
+        
+        checksum256 id_hash;
+        sha256(const_cast<char*>(hash_source.c_str()), hash_source.length(), &id_hash);
+        return id_hash;
+      }
 };
 
-EOSIO_ABI( l2dex, (hi)(open)(close) )
+EOSIO_ABI( l2dex, (hi)(open)(close)(extend) )
