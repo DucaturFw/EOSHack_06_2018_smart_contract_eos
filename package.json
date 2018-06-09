@@ -1,0 +1,19 @@
+{
+  "name": "channel-contract",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "git@github.com:DucaturFw/EOSHack_06_2018_smart_contract_eos.git",
+  "author": "zlumer",
+  "license": "MIT",
+  "scripts": {
+    "start": "node js/app.js",
+    "test": "jest"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/jest": "^23.0.0",
+    "@types/node": "^10.3.2",
+    "eosjs": "^14.1.1",
+    "jest": "^23.1.0"
+  }
+}
