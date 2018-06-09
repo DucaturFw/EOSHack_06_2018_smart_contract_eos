@@ -126,13 +126,18 @@ class l2dex : public eosio::contract {
         channels channel( _self, N(l2dex.code) );
         const auto& ch = channel.get(chid, "channel doesn't exist!");
 
+        // print("pre-auth");
+
         if (!has_auth(ch.respondent))
           require_auth(ch.opener);
+        
+        // print("post-auth");
         
         public_key key = has_auth(ch.respondent) ? ch.pub_key : ch.pub_key_resp;
 
         eosio_assert(openerAmount <= ch.allowance.amount, "not enough allowance!");
         eosio_assert(openerAmount >= 0, "can't go below zero!");
+        // print("tak-to vse vrode zaebis");
 
         std::string str = std::to_string(chid) + ";" + std::to_string(n) + ";" + std::to_string(openerAmount);
 
@@ -196,7 +201,7 @@ class l2dex : public eosio::contract {
         if (!t)
           return false;
         
-        return (t < (now() + 86400));
+        return (t < (now() - 300));
       }
       void finalizeChannel(uint64_t chid, int64_t openerAmount)
       {
@@ -204,10 +209,12 @@ class l2dex : public eosio::contract {
         const auto& ch = channel.get(chid, "channel doesn't exist!");
 
         asset newBalance(openerAmount, ch.allowance.symbol);
+        
+        // SEND_INLINE_ACTION(eosio::token, transfer, ("from", _self)("to", opener)("quantity", newBalance)("memo", chid));
         action(
           permission_level{ _self, N(active) },
           N(eosio.token), N(transfer),
-          std::make_tuple(_self, ch.opener, newBalance, chid)
+          std::make_tuple(_self, ch.opener, newBalance, std::to_string(chid))
         ).send();
 
         channel.erase(ch);
