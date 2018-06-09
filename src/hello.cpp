@@ -14,6 +14,7 @@ class l2dex : public eosio::contract {
   public:
       using contract::contract;
 
+      /// @abi table channels
       struct channel {
         uint64_t id;
 
@@ -60,17 +61,18 @@ class l2dex : public eosio::contract {
           + std::to_string(quantity.symbol.name())
           + pair;
         
-        checksum256 id;
-        sha256(const_cast<char*>(hash_source.c_str()), hash_source.length(), &id);
+        checksum256 id_hash;
+        sha256(const_cast<char*>(hash_source.c_str()), hash_source.length(), &id_hash);
 
         // check if the channel between these two accounts in the selected currency already exists
         channels channel( _self, N(l2dex.code) );
-        auto ch2 = channel.find(reinterpret_cast<uint64_t*>(id.hash)[0]);
+        auto chid = reinterpret_cast<uint64_t*>(id_hash.hash)[0];
+        auto ch2 = channel.find(chid);
 
         eosio_assert(ch2 == channel.end(), "channel already exists!");
 
         // print(" ",hash_source," ");
-        // print(" ",std::string(reinterpret_cast<char*>(id.hash)).c_str()," ");
+        // print(" ",std::string(reinterpret_cast<char*>(id_hash.hash)).c_str()," ");
         // SEND_INLINE_ACTION(eosio::token, get_balance, ("owner", opener)("sym", quantity.symbol.name()));
         // INLINE_ACTION_SENDER(eosio::token, transfer)( N(eosio.token), {payer, N(opener)},
         //   { opener, N(eosio.ramfee), fee, std::string("") } )
@@ -78,16 +80,26 @@ class l2dex : public eosio::contract {
         // check that opener has enough money
         accounts acc( N(eosio.token), opener );
         auto balance = acc.get(quantity.symbol.name());
-        print(balance.balance);
+        // print(balance.balance);
 
         eosio_assert(balance.balance.amount >= quantity.amount, "not enough money!");
 
         // raise permissions level and transfer tokens (currency/symbol) from opener to this contract
         action(
-            permission_level{ opener, N(active) },
-            N(eosio.token), N(transfer),
-            std::make_tuple(opener, _self, quantity, pair)
-         ).send();
+          permission_level{ opener, N(active) },
+          N(eosio.token), N(transfer),
+          std::make_tuple(opener, _self, quantity, pair)
+        ).send();
+
+        // put channel data into contract table
+        channel.emplace(opener, [&]( auto& a ) {
+          a.id = chid;
+          a.allowance = quantity;
+          a.opener = opener;
+          a.respondent = respondent;
+          a.pub_key = pub_key;
+          a.pair = pair;
+        });
          
         // transfer tokens
         // sub_balance(opener, quantity);
