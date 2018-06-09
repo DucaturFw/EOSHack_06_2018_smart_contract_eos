@@ -1,0 +1,1 @@
+./upload.sh && ssh -i ~/.ssh/ducatur.pem ubuntu@35.172.116.56 '~/eos/l2dex/all.sh'

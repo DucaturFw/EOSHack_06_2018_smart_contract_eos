@@ -1,0 +1,1 @@
+scp -i ~/.ssh/ducatur.pem src/hello.cpp ubuntu@35.172.116.56:/home/ubuntu/eos/l2dex/
