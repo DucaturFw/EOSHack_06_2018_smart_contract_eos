@@ -135,7 +135,7 @@ class l2dex : public eosio::contract {
         
         public_key key = has_auth(ch.respondent) ? ch.pub_key : ch.pub_key_resp;
 
-        eosio_assert(openerAmount <= ch.allowance.amount, "not enough allowance!");
+        // eosio_assert(openerAmount <= ch.allowance.amount, "not enough allowance!");
         eosio_assert(openerAmount >= 0, "can't go below zero!");
         // print("tak-to vse vrode zaebis");
 
