@@ -37,14 +37,24 @@ class l2dex : public eosio::contract {
       /// @abi action
       void open(account_name opener, public_key pub_key, account_name respondent, asset quantity, std::string pair)
       {
+        // print for sanity
         print("Opening ", opener, " ", respondent, " for ", quantity.symbol.name(), quantity.amount, " - ", pair);
 
+        // check input arguments correctness
+        eosio_assert(quantity.symbol.is_valid(), "invalid symbol name" );
         eosio_assert(quantity.amount > 0, "invalid token quantity");
-        eosio_assert(opener, "invalid opener!");
-        eosio_assert(respondent, "invalid respondent!");
+        eosio_assert(is_account(opener), "invalid opener!");
+        eosio_assert(is_account(respondent), "invalid respondent!");
         eosio_assert(opener != respondent, "can't open channel to self!");
         eosio_assert(!pair.empty(), "invalid pair!");
+        
+        // check opener authorization to prevent malicious use
+        require_auth(opener);
 
+        require_recipient(opener);
+        require_recipient(respondent);
+
+        // calculate channel hash to check existence
         std::string hash_source = std::to_string(opener)
           + std::to_string(respondent)
           + std::to_string(quantity.symbol.name())
@@ -53,7 +63,8 @@ class l2dex : public eosio::contract {
         checksum256 id;
         sha256(const_cast<char*>(hash_source.c_str()), hash_source.length(), &id);
 
-        channels channel( N(this), N(l2dex.code) );
+        // check if the channel between these two accounts in the selected currency already exists
+        channels channel( _self, N(l2dex.code) );
         auto ch2 = channel.find(reinterpret_cast<uint64_t*>(id.hash)[0]);
 
         eosio_assert(ch2 == channel.end(), "channel already exists!");
@@ -63,11 +74,24 @@ class l2dex : public eosio::contract {
         // SEND_INLINE_ACTION(eosio::token, get_balance, ("owner", opener)("sym", quantity.symbol.name()));
         // INLINE_ACTION_SENDER(eosio::token, transfer)( N(eosio.token), {payer, N(opener)},
         //   { opener, N(eosio.ramfee), fee, std::string("") } )
+
+        // check that opener has enough money
         accounts acc( N(eosio.token), opener );
         auto balance = acc.get(quantity.symbol.name());
         print(balance.balance);
 
         eosio_assert(balance.balance.amount >= quantity.amount, "not enough money!");
+
+        // raise permissions level and transfer tokens (currency/symbol) from opener to this contract
+        action(
+            permission_level{ opener, N(active) },
+            N(eosio.token), N(transfer),
+            std::make_tuple(opener, _self, quantity, pair)
+         ).send();
+         
+        // transfer tokens
+        // sub_balance(opener, quantity);
+        // add_balance(_self, quantity, opener);
       }
       /// @abi action
       void close(account_name opener, account_name respondent, std::string tx)
