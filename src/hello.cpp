@@ -5,6 +5,7 @@
 #include <eosio.token/eosio.token.hpp>
 
 #include <string>
+#include <sstream>
 
 using namespace eosio;
 
@@ -22,7 +23,13 @@ class l2dex : public eosio::contract {
         account_name opener;
         account_name respondent;
         public_key pub_key;
+        public_key pub_key_resp;
         std::string pair;
+
+        int64_t openerAmount;
+        uint64_t n;
+        time_t t = 0;
+        bool opener_agreed = false;
 
         uint64_t primary_key() const { return id; }
       };
@@ -36,7 +43,7 @@ class l2dex : public eosio::contract {
       typedef eosio::multi_index<N(channels), channel> channels;
 
       /// @abi action
-      void open(account_name opener, public_key pub_key, account_name respondent, asset quantity, std::string pair)
+      void open(account_name opener, public_key pub_key, account_name respondent, public_key resp_key, asset quantity, std::string pair)
       {
         // print for sanity
         print("Opening ", opener, " ", respondent, " for ", quantity.symbol.name(), quantity.amount, " - ", pair);
@@ -86,6 +93,7 @@ class l2dex : public eosio::contract {
           a.respondent = respondent;
           a.pub_key = pub_key;
           a.pair = pair;
+          a.pub_key_resp = resp_key;
         });
          
         // transfer tokens
@@ -113,33 +121,69 @@ class l2dex : public eosio::contract {
         });
       }
       /// @abi action
-      void close2(account_name opener, account_name respondent, std::string tx)
+      void validate(uint64_t chid, int64_t openerAmount, uint64_t n, signature& sign, bool isOpener)
       {
-        print("Closing: ", opener, respondent, " with ", tx);
-      }
-      void validate(checksum256& hash, signature& sign)
-      {
-      }
-      void actualize(checksum256& hash, signature& sign, std::string/* HUY TAM BYLO!!! */ data)
-      {
+        channels channel( _self, N(l2dex.code) );
+        const auto& ch = channel.get(chid, "channel doesn't exist!");
+
+        if (!has_auth(ch.respondent))
+          require_auth(ch.opener);
+        
+        public_key key = has_auth(ch.respondent) ? ch.pub_key : ch.pub_key_resp;
+
+        eosio_assert(openerAmount <= ch.allowance.amount, "not enough allowance!");
+        eosio_assert(openerAmount >= 0, "can't go below zero!");
+
+        std::string str = std::to_string(chid) + ";" + std::to_string(n) + ";" + std::to_string(openerAmount);
+
+        checksum256 hash;
+        sha256(const_cast<char*>(str.c_str()), str.length(), &hash);
+        assert_recover_key(&hash, reinterpret_cast<char *>(sign.data), 66, key.data, 34);
       }
       /// @abi action
-      void close(
-        account_name opener,
-        account_name respondent,
-        asset quantity,
-        std::string pair,
-        checksum256& hash,
-        signature& sign,
-        std::string/* HUY TAM BYLO!!! */ data)
+      void close(uint64_t chid, int64_t openerAmount, uint64_t n, signature& sign, bool isOpener)
       {
-        actualize(hash, sign, data);
+        validate(chid, openerAmount, n, sign, isOpener);
         
         channels channel( _self, N(l2dex.code) );
-        auto id = calcChannelId(opener, respondent, quantity, pair);
-        const auto& ch = channel.get(id, "channel doesn't exist!");
+        const auto& ch = channel.get(chid, "channel doesn't exist!");
 
-        channel.erase(ch);
+        eosio_assert(n >= ch.n, "nonce is lower than last tx!");
+
+        bool challengeOpen = ch.t > 0;
+
+        if (challengeOpen)
+        {
+          if (isOpener != ch.opener_agreed)
+          {
+            // finalize
+            finalizeChannel(chid, openerAmount);
+          }
+          else
+          {
+            if (channelTimedout(ch.t))
+            {
+              // single-party finalize on timeout
+              finalizeChannel(chid, openerAmount);
+            }
+            else
+            {
+              // discard
+              eosio_assert(false, "this party already submitted their close request!");
+            }
+          }
+        }
+        else
+        {
+          // open challenge
+          channel.modify(ch, ch.opener, [&](auto& ch)
+          {
+            ch.n = n;
+            ch.openerAmount = openerAmount;
+            ch.opener_agreed = isOpener;
+            ch.t = now();
+          });
+        }
       }
 
       /// @abi action 
@@ -147,6 +191,27 @@ class l2dex : public eosio::contract {
          print( "Hello, ", name{user} );
       }
   private:
+      bool channelTimedout(time_t t)
+      {
+        if (!t)
+          return false;
+        
+        return (t < (now() + 86400));
+      }
+      void finalizeChannel(uint64_t chid, int64_t openerAmount)
+      {
+        channels channel( _self, N(l2dex.code) );
+        const auto& ch = channel.get(chid, "channel doesn't exist!");
+
+        asset newBalance(openerAmount, ch.allowance.symbol);
+        action(
+          permission_level{ _self, N(active) },
+          N(eosio.token), N(transfer),
+          std::make_tuple(_self, ch.opener, newBalance, chid)
+        ).send();
+
+        channel.erase(ch);
+      }
       bool enoughMoney(account_name opener, asset quantity)
       {
         return getUserBalance(opener, quantity).amount >= quantity.amount;
@@ -175,4 +240,4 @@ class l2dex : public eosio::contract {
       }
 };
 
-EOSIO_ABI( l2dex, (hi)(open)(close)(extend) )
+EOSIO_ABI( l2dex, (hi)(open)(validate)(close)(extend) )
