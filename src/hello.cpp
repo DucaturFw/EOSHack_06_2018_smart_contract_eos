@@ -100,12 +100,12 @@ class l2dex : public eosio::contract {
         require_auth(opener);
         eosio_assert(enoughMoney(opener, quantity), "not enough money!");
 
-        auto id = calcChannelId(opener, respondent, quantity, pair);
-        
         channels channel( _self, N(l2dex.code) );
+        auto id = calcChannelId(opener, respondent, quantity, pair);
         auto ch2 = channel.find(id);
         eosio_assert(ch2 != channel.end(), "channel doesn't exist!");
         const auto& ch = *ch2;
+
         eosio_assert(ch.allowance.amount < quantity.amount, "not enough quantity to extend!");
         channel.modify(ch, 0, [&](auto& x)
         {
@@ -113,9 +113,33 @@ class l2dex : public eosio::contract {
         });
       }
       /// @abi action
-      void close(account_name opener, account_name respondent, std::string tx)
+      void close2(account_name opener, account_name respondent, std::string tx)
       {
         print("Closing: ", opener, respondent, " with ", tx);
+      }
+      void validate(checksum256& hash, signature& sign)
+      {
+      }
+      void actualize(checksum256& hash, signature& sign, std::string/* HUY TAM BYLO!!! */ data)
+      {
+      }
+      /// @abi action
+      void close(
+        account_name opener,
+        account_name respondent,
+        asset quantity,
+        std::string pair,
+        checksum256& hash,
+        signature& sign,
+        std::string/* HUY TAM BYLO!!! */ data)
+      {
+        actualize(hash, sign, data);
+        
+        channels channel( _self, N(l2dex.code) );
+        auto id = calcChannelId(opener, respondent, quantity, pair);
+        const auto& ch = channel.get(id, "channel doesn't exist!");
+
+        channel.erase(ch);
       }
 
       /// @abi action 
